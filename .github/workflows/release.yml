@@ -1,0 +1,118 @@
+name: gopm-release
+
+on:
+  workflow_run:
+    workflows: [Deployment]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.24
+
+      - name: Build for multiple platforms
+        run: |
+          mkdir -p build
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build/gopm-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o build/gopm-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o build/gopm-macos-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o build/gopm-macos-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/gopm-windows-amd64.exe .
+          GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/gopm-windows-arm64.exe .
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gopm-binaries
+          path: build/
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "release_tag=v$(date +'%Y.%m.%d_%H-%M')" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          release_name: Release ${{ steps.tag.outputs.release_tag }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux AMD64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-linux-amd64
+          asset_name: gopm-linux-amd64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Linux ARM64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-linux-arm64
+          asset_name: gopm-linux-arm64
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS AMD64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-macos-amd64
+          asset_name: gopm-macos-amd64
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS ARM64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-macos-arm64
+          asset_name: gopm-macos-arm64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows AMD64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-windows-amd64.exe
+          asset_name: gopm-windows-amd64.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows ARM64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/gopm-windows-arm64.exe
+          asset_name: gopm-windows-arm64.exe
+          asset_content_type: application/octet-stream
