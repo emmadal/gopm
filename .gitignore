@@ -23,3 +23,15 @@ go.work.sum
 
 # env file
 .env
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+.zed/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+*.swn
+*~
