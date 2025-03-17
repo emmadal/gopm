@@ -26,10 +26,9 @@ var root = &cobra.Command{
 }
 
 func main() {
-	root.AddCommand(cmd.InitCmd, cmd.AddCmd, cmd.DevCmd)
+	root.AddCommand(cmd.InitCmd, cmd.AddCmd, cmd.DevCmd, cmd.InstallCmd)
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to execute command: %v\n", err)
 		os.Exit(1)
 	}
 }

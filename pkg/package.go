@@ -230,3 +230,18 @@ func VerifyJsonFile() (bool, error) {
 	}
 	return true, nil
 }
+
+// ReadPackageJson reads the package.json file
+func (p *PackageJSON) ReadPackageJson() (*PackageJSON, error) {
+	file, err := os.Open(filepath.Join(GetCwd(), PACKAGE_JSON))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	if err := json.NewDecoder(file).Decode(&p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}

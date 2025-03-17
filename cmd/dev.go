@@ -54,7 +54,7 @@ var DevCmd = &cobra.Command{
 
 // fetchDevDependencies fetches dependencies from the npm registry
 func fetchDevDependencies(args []string) error {
-	logrus.Infof("Ready to download %d dependencies\n\n", len(args))
+	logrus.Infof("Ready to download %d dev dependencies\n\n", len(args))
 	cwd := pkg.GetCwd()
 	packageJsonPath := filepath.Join(cwd, pkg.PACKAGE_JSON)
 
