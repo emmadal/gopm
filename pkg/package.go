@@ -117,7 +117,8 @@ func (b *BodyRegistery) DownloadPackage(dependency, version string) bool {
 		}
 	}
 
-	logrus.Infof("Successfully downloaded %s\n\n", dependency)
+	// logrus.Infof("Successfully downloaded %s\n\n", dependency)
+	fmt.Printf("✅ Successfully downloaded %s\n\n", dependency)
 	return true
 }
 
@@ -139,38 +140,36 @@ func GetCwd() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		logrus.Errorf("failed to get current working directory: %v", err)
-		os.Exit(0)
+		os.Exit(1)
 	}
 	return cwd
 }
 
 // UnzipDependency unzips a dependency.
 func UnzipDependency(filePath string) error {
-	folderName := strings.Split(filepath.Base(filePath), ".tgz")[0]
-	dependencyFolder := filepath.Dir(filePath)
-
-	fmt.Println(folderName, dependencyFolder)
-
-	command := fmt.Sprintf("tar -xvf %s -C %s", filePath, dependencyFolder)
+	compressedFile := fmt.Sprintf("%s.tgz", filePath)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		_ = os.Mkdir(filePath, 0755)
+	}
+	command := fmt.Sprintf("tar -xzf %s --strip-components=1 -C %s", compressedFile, filePath)
 
 	cmd := exec.Command("sh", "-c", command)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to unzip %s", filePath)
+		return fmt.Errorf("failed to unzip %s", compressedFile)
 	}
-	err := os.Rename(filepath.Join(dependencyFolder, "package"), filepath.Join(dependencyFolder, folderName))
-	if err != nil {
-		return fmt.Errorf("failed to rename %s", filePath)
-	}
-	cmdRm := exec.Command("sh", "-c", "rm *.tgz")
-	if err := cmdRm.Run(); err != nil {
-		return fmt.Errorf("failed to remove %s", filePath)
-	}
+
+	// Remove compressed file
+	go func() {
+		if err := exec.Command("sh", "-c", fmt.Sprintf("rm -f %s", compressedFile)).Run(); err != nil {
+			logrus.Errorf("failed to remove %s", compressedFile)
+		}
+	}()
 	return nil
 }
 
 // GetDependencyLatest gets the latest version of a dependency from the npm registry.
 func (body *BodyRegistery) GetDependencyLatest(dependency string) (string, error) {
-	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+	var ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	packageURL := fmt.Sprintf("%s%s", NPM_REGISTRY, dependency)
@@ -184,7 +183,7 @@ func (body *BodyRegistery) GetDependencyLatest(dependency string) (string, error
 	// Send HTTP request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Failed to fetch dependency info for %s", dependency)
+		return "", fmt.Errorf("Failed to fetch %s. Please check network config or try again", dependency)
 	}
 	defer resp.Body.Close()
 
@@ -193,4 +192,29 @@ func (body *BodyRegistery) GetDependencyLatest(dependency string) (string, error
 		return "", fmt.Errorf("Failed to decode dependency for %s", dependency)
 	}
 	return body.DistTags.Latest, nil
+}
+
+// CreateNodeModulesFolder creates a node_modules folder
+func CreateNodeModulesFolder() error {
+	cwd := GetCwd()
+	modulesPath := filepath.Join(cwd, NODE_MODULE)
+
+	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
+		if err := os.Mkdir(modulesPath, 0755); err != nil {
+			return fmt.Errorf("Unable to create dependencies folder: %v\n", err)
+		}
+	} else {
+		logrus.Infoln("dependencies folder already exists. Skipping...")
+	}
+	return nil
+}
+
+// VerifyJsonFile verifies if package.json file exists
+func VerifyJsonFile() (bool, error) {
+	cwd := GetCwd()
+	packageJsonPath := filepath.Join(cwd, PACKAGE_JSON)
+	if _, err := os.Stat(packageJsonPath); os.IsNotExist(err) {
+		return false, fmt.Errorf("package.json file not found")
+	}
+	return true, nil
 }

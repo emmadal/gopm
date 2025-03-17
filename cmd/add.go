@@ -33,49 +33,21 @@ var AddCmd = &cobra.Command{
 	}, "\n"),
 	Run: func(cmd *cobra.Command, args []string) {
 		start := time.Now()
-		exists, err := verifyJsonFile()
+		exists, err := pkg.VerifyJsonFile()
 		if err != nil || !exists {
 			logrus.Errorln("package.json file not found. Run 'gopm init' or 'gopm init my-module' to create one")
-			os.Exit(0)
-		} else {
-			if err := createNodeModulesFolder(); err != nil {
-				logrus.Errorln("failed to create node_modules folder")
-				os.Exit(0)
-			} else {
-				if err := fetchDependencies(args); err != nil {
-					logrus.Errorln("failed to fetch dependencies")
-					os.Exit(0)
-				} else {
-					fmt.Printf("🍺 dependencies added successfully in %s\n\n", time.Since(start))
-				}
-			}
+			os.Exit(1)
 		}
+		if err := pkg.CreateNodeModulesFolder(); err != nil {
+			logrus.Errorln("failed to create node_modules folder")
+			os.Exit(1)
+		}
+		if err := fetchDependencies(args); err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("🍺 Dependencies added successfully in %s\n\n", time.Since(start))
 	},
-}
-
-// createNodeModulesFolder creates a node_modules folder
-func createNodeModulesFolder() error {
-	cwd := pkg.GetCwd()
-	modulesPath := filepath.Join(cwd, pkg.NODE_MODULE)
-
-	if _, err := os.Stat(modulesPath); os.IsNotExist(err) {
-		if err := os.Mkdir(modulesPath, 0755); err != nil {
-			return fmt.Errorf("Unable to create dependencies folder: %v\n", err)
-		}
-	} else {
-		logrus.Infoln("dependencies folder already exists. Skipping...")
-	}
-	return nil
-}
-
-// verifyJsonFile verifies if package.json file exists
-func verifyJsonFile() (bool, error) {
-	cwd := pkg.GetCwd()
-	packageJsonPath := filepath.Join(cwd, pkg.PACKAGE_JSON)
-	if _, err := os.Stat(packageJsonPath); os.IsNotExist(err) {
-		return false, fmt.Errorf("package.json file not found")
-	}
-	return true, nil
 }
 
 // fetchDependencies fetches dependencies from the npm registry
@@ -113,13 +85,21 @@ func fetchDependencies(args []string) error {
 	for _, dependency := range args {
 		body := pkg.BodyRegistery{}
 		g.Go(func() error {
+			// Get the latest version of the dependency
 			version, err := body.GetDependencyLatest(dependency)
 			if err != nil || version == "" {
 				return err
 			}
+			// Download the package
 			if !body.DownloadPackage(dependency, version) {
 				return err
 			}
+			// Unzip the downloaded
+			dependencyPath := filepath.Join(cwd, pkg.NODE_MODULE, dependency)
+			if err := pkg.UnzipDependency(dependencyPath); err != nil {
+				return err
+			}
+			// Add dependency to package.json
 			mu.Lock()
 			packageJson.AddDependency(map[string]string{dependency: version})
 			added.Store(true) // Atomic write
@@ -130,7 +110,7 @@ func fetchDependencies(args []string) error {
 
 	// Wait for all goroutines to finish
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("error downloading dependencies: %w", err)
+		return err
 	}
 
 	if !added.Load() {
