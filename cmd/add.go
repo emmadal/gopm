@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +32,7 @@ var AddCmd = &cobra.Command{
 		"$ gopm add react react-dom",
 	}, "\n"),
 	Run: func(cmd *cobra.Command, args []string) {
+		start := time.Now()
 		exists, err := verifyJsonFile()
 		if err != nil || !exists {
 			logrus.Errorln("package.json file not found. Run 'gopm init' or 'gopm init my-module' to create one")
@@ -47,7 +46,7 @@ var AddCmd = &cobra.Command{
 					logrus.Errorln("failed to fetch dependencies")
 					os.Exit(0)
 				} else {
-					logrus.Infoln("dependencies added successfully")
+					fmt.Printf("🍺 dependencies added successfully in %s\n\n", time.Since(start))
 				}
 			}
 		}
@@ -81,9 +80,7 @@ func verifyJsonFile() (bool, error) {
 
 // fetchDependencies fetches dependencies from the npm registry
 func fetchDependencies(args []string) error {
-	// start := time.Now()
 	logrus.Infof("Ready to download %d dependencies\n\n", len(args))
-
 	cwd := pkg.GetCwd()
 	packageJsonPath := filepath.Join(cwd, pkg.PACKAGE_JSON)
 
@@ -101,28 +98,32 @@ func fetchDependencies(args []string) error {
 		return fmt.Errorf("error decoding package.json: %w", err)
 	}
 
-	// Set timeout for HTTP requests BEFORE creating errgroup
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
 	// Create errgroup to limit concurrent downloads
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(pkg.MAX_CONCURRENT_DOWNLOADS)
+	g := errgroup.Group{}
+	if len(args) > pkg.MAX_CONCURRENT_DOWNLOADS {
+		g.SetLimit(pkg.MAX_CONCURRENT_DOWNLOADS)
+	} else {
+		g.SetLimit(len(args))
+	}
 
 	var mu sync.Mutex // Protect concurrent writes
 	var added atomic.Bool
 
+	// Download dependencies concurrently
 	for _, dependency := range args {
-		dependency := dependency // Capture range variable
+		body := pkg.BodyRegistery{}
 		g.Go(func() error {
-			if downloaded, version := getDependencyInfo(&gCtx, dependency); downloaded {
-				mu.Lock()
-				packageJson.AddDependency(map[string]string{dependency: version})
-				added.Store(true) // Atomic write
-				mu.Unlock()
-			} else {
-				return fmt.Errorf("failed to download dependency: %s", dependency)
+			version, err := body.GetDependencyLatest(dependency)
+			if err != nil || version == "" {
+				return err
 			}
+			if !body.DownloadPackage(dependency, version) {
+				return err
+			}
+			mu.Lock()
+			packageJson.AddDependency(map[string]string{dependency: version})
+			added.Store(true) // Atomic write
+			mu.Unlock()
 			return nil
 		})
 	}
@@ -161,35 +162,4 @@ func fetchDependencies(args []string) error {
 		return fmt.Errorf("error replacing file: %w", err)
 	}
 	return nil
-}
-
-// getDependencyInfo gets dependency information from the npm registry
-func getDependencyInfo(ctx *context.Context, dependency string) (bool, string) {
-	var registery pkg.BodyRegistery
-	packageURL := fmt.Sprintf("%s%s", pkg.NPM_REGISTRY, dependency)
-
-	// Fetch the package information from the npm registry
-	req, err := http.NewRequestWithContext(*ctx, http.MethodGet, packageURL, nil)
-	if err != nil {
-		logrus.Errorf("Failed to get %s", dependency)
-		return false, ""
-	}
-
-	// Send HTTP request
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		logrus.Errorf("Failed to process %s", dependency)
-		return false, ""
-	}
-	defer resp.Body.Close()
-
-	// Decode the response body
-	if err := json.NewDecoder(resp.Body).Decode(&registery); err != nil {
-		logrus.Errorf("Failed to decode %s", dependency)
-		return false, ""
-	}
-
-	// Download the package
-	download := registery.DownloadPackage(dependency, registery.DistTags.Latest)
-	return download, registery.DistTags.Latest
 }

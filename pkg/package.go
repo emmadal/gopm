@@ -2,11 +2,13 @@ package pkg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -140,4 +142,55 @@ func GetCwd() string {
 		os.Exit(0)
 	}
 	return cwd
+}
+
+// UnzipDependency unzips a dependency.
+func UnzipDependency(filePath string) error {
+	folderName := strings.Split(filepath.Base(filePath), ".tgz")[0]
+	dependencyFolder := filepath.Dir(filePath)
+
+	fmt.Println(folderName, dependencyFolder)
+
+	command := fmt.Sprintf("tar -xvf %s -C %s", filePath, dependencyFolder)
+
+	cmd := exec.Command("sh", "-c", command)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to unzip %s", filePath)
+	}
+	err := os.Rename(filepath.Join(dependencyFolder, "package"), filepath.Join(dependencyFolder, folderName))
+	if err != nil {
+		return fmt.Errorf("failed to rename %s", filePath)
+	}
+	cmdRm := exec.Command("sh", "-c", "rm *.tgz")
+	if err := cmdRm.Run(); err != nil {
+		return fmt.Errorf("failed to remove %s", filePath)
+	}
+	return nil
+}
+
+// GetDependencyLatest gets the latest version of a dependency from the npm registry.
+func (body *BodyRegistery) GetDependencyLatest(dependency string) (string, error) {
+	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	packageURL := fmt.Sprintf("%s%s", NPM_REGISTRY, dependency)
+
+	// Fetch the package information from the npm registry
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, packageURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("Failed to initialize request for %s", dependency)
+	}
+
+	// Send HTTP request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Failed to fetch dependency info for %s", dependency)
+	}
+	defer resp.Body.Close()
+
+	// Decode the response body
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("Failed to decode dependency for %s", dependency)
+	}
+	return body.DistTags.Latest, nil
 }
