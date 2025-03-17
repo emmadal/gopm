@@ -72,6 +72,17 @@ func (p *PackageJSON) AddDependency(dependencies map[string]string) {
 	maps.Copy(p.Dependencies, dependencies)
 }
 
+// AddDevDependency adds dependency to the package.json file.
+func (p *PackageJSON) AddDevDependency(dependencies map[string]string) {
+	if len(dependencies) == 0 {
+		return
+	}
+	if p.DevDependencies == nil {
+		p.DevDependencies = make(map[string]string)
+	}
+	maps.Copy(p.DevDependencies, dependencies)
+}
+
 // DownloadPackage downloads a package from the npm registry.
 func (b *BodyRegistery) DownloadPackage(dependency, version string) bool {
 	tarball := Tarball(dependency, version)
@@ -148,22 +159,23 @@ func GetCwd() string {
 // UnzipDependency unzips a dependency.
 func UnzipDependency(filePath string) error {
 	compressedFile := fmt.Sprintf("%s.tgz", filePath)
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		_ = os.Mkdir(filePath, 0755)
-	}
-	command := fmt.Sprintf("tar -xzf %s --strip-components=1 -C %s", compressedFile, filePath)
 
-	cmd := exec.Command("sh", "-c", command)
+	// Ensure the directory exists
+	if err := os.MkdirAll(filePath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", filePath, err)
+	}
+
+	// Execute tar command safely
+	cmd := exec.Command("tar", "-xzf", compressedFile, "--strip-components=1", "-C", filePath)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to unzip %s", compressedFile)
+		return fmt.Errorf("failed to unzip %s: %w", compressedFile, err)
 	}
 
 	// Remove compressed file
-	go func() {
-		if err := exec.Command("sh", "-c", fmt.Sprintf("rm -f %s", compressedFile)).Run(); err != nil {
-			logrus.Errorf("failed to remove %s", compressedFile)
-		}
-	}()
+	if err := os.Remove(compressedFile); err != nil {
+		logrus.Errorf("failed to remove %s: %v", compressedFile, err)
+	}
+
 	return nil
 }
 
